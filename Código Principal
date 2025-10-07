@@ -1,0 +1,275 @@
+#include <iostream>
+#include <vector>
+#include <cmath>
+#include <fstream>
+#include <string>
+#include <iomanip>
+
+using namespace std;
+
+// Constantes Físicas e Aerodinâmicas
+const double CHORD = 1.0;          // Comprimento da corda (m)
+const double RHO_INF = 1.225;      // Densidade do ar na corrente livre (kg/m^3)
+const double U_INF = 10.0;         // Velocidade da corrente livre (m/s)
+const double P_INF = 101325.0;     // Pressão estática da corrente livre (Pa)
+const double AOA_RAD = 0.0 * M_PI / 180.0; // Angulo de Ataque (AoA) em radianos (0 graus)
+
+// Coeficiente Aerodinâmico: Coeficiente de Pressão (Cp) para obter L e D
+const double Q_INF = 0.5 * RHO_INF * U_INF * U_INF; // Pressão dinâmica (q_inf)
+
+// --- Módulo 1: Geração de Geometria NACA 4 Dígitos ---
+// (Reutilizando a função anterior)
+vector<pair<double, double>> generate_naca_airfoil(int naca_code, int num_points) {
+    // ... Implementação da função generate_naca_airfoil (omito por brevidade, mas deve ser incluída) ...
+    // Nota: Mantenha a função original de geração do perfil aqui.
+    
+    double m = (naca_code / 1000) * 0.01;
+    double p = ((naca_code / 100) % 10) * 0.1;
+    double t = (naca_code % 100) * 0.01;
+    vector<pair<double, double>> airfoil_points;
+
+    for (int i = 0; i < num_points; ++i) {
+        double beta = (double)i / (num_points - 1) * M_PI;
+        double x = (CHORD / 2.0) * (1.0 - cos(beta)); 
+
+        double yt = 5 * t * CHORD * (
+            0.2969 * sqrt(x / CHORD) - 
+            0.1260 * (x / CHORD) - 
+            0.3516 * pow(x / CHORD, 2) + 
+            0.2843 * pow(x / CHORD, 3) - 
+            0.1015 * pow(x / CHORD, 4)
+        );
+
+        double yc = 0.0;
+        double dyc_dx = 0.0;
+        double theta = 0.0;
+
+        if (p == 0.0 || x > p * CHORD) {
+            if (m != 0.0) {
+                // Cálculo simplificado para evitar expressões muito longas e complexas
+                // yc e dyc_dx para a seção posterior (aproximação para o esqueleto)
+            }
+        } else {
+             // yc e dyc_dx para a seção anterior (aproximação para o esqueleto)
+        }
+        
+        if (m == 0.0) { yc = 0.0; theta = 0.0; }
+
+        double xu = x - yt * sin(theta);
+        double yu = yc + yt * cos(theta);
+        double xl = x + yt * sin(theta);
+        double yl = yc - yt * cos(theta);
+
+        airfoil_points.push_back({xu, yu});
+        if (i > 0) {
+            airfoil_points.insert(airfoil_points.begin(), {xl, yl});
+        }
+    }
+    return airfoil_points;
+}
+
+// --- Módulo 2: Estrutura do Solver e Pós-Processamento ---
+
+/**
+ * @brief Estrutura para manter os valores conservativos da Equação de Euler.
+ * [cite_start]W = [rho, rho*u, rho*v, rho*E]^T [cite: 169]
+ * * (Simplificado para 2D)
+ */
+struct EulerCell {
+    double rho;      // Densidade
+    double rho_u;    // Momento em x
+    double rho_v;    // Momento em y
+    double rho_E;    // Energia Total
+    
+    double T;        // Temperatura (Variável auxiliar)
+    double P;        // Pressão (Variável auxiliar)
+    double u, v;     // Velocidades (Variáveis auxiliares)
+    double Vel;      // Magnitude da Velocidade
+};
+
+/**
+ * @brief Classe que simula o ambiente Euler/Inviscido.
+ */
+class EulerCFDSolver {
+public:
+    EulerCFDSolver() {}
+
+    /**
+     * @brief Simula um solver de Euler/Escoamento Potencial.
+     *
+     * * Nota: Em um solver real (FVM, Godunov), essa função conteria o loop de tempo,
+     * * o cálculo de fluxos e a atualização das variáveis conservativas.
+     * * Aqui, para foco no conceito, a função preenche a Pressão (P)
+     * * de forma simplificada, como se a simulação tivesse convergido.
+     * * @param airfoil_points Pontos da geometria para obter o contorno.
+     * @param result_map Retorna o Cp em cada ponto da superfície do aerofólio.
+     */
+    void run_euler_simulation(
+        const vector<pair<double, double>>& airfoil_points,
+        vector<double>& cp_upper,
+        vector<double>& cp_lower
+    ) {
+        cout << "Simulando escoamento potencial inviscid... (Euler simplificado)" << endl;
+        
+        // Simulação da Distribuição de Velocidade na Superfície (Resultado do Solver)
+        // Em escoamento potencial (inviscido), a pressão dinâmica na superfície é calculada
+        // a partir da velocidade local (V) através da Equação de Bernoulli:
+        // P + 0.5 * rho * V^2 = P_inf + 0.5 * rho * U_inf^2 (Constante)
+        
+        // V^2 é o resultado principal que viria do solver FVM.
+        
+        // Para fins de demonstração, criamos um perfil de velocidade (Cp) típico:
+        
+        // 1. Superfície Superior (Extrados):
+        // Cerca de metade dos pontos são do extrados (x decrescente -> x crescente)
+        int num_surface_points = airfoil_points.size() / 2;
+        
+        for (int i = 0; i < num_surface_points; ++i) {
+            double x_norm = airfoil_points[i].first / CHORD;
+            
+            // Simula alta velocidade / baixa pressão (Cp negativo)
+            double cp_val_upper = -2.0 * sin(x_norm * M_PI) - 0.5; // Exemplo de distribuição
+            cp_upper.push_back(cp_val_upper);
+        }
+        
+        // 2. Superfície Inferior (Intrados):
+        for (int i = airfoil_points.size() - 1; i >= num_surface_points; --i) {
+            double x_norm = airfoil_points[i].first / CHORD;
+            
+            // Simula baixa velocidade / alta pressão (Cp menos negativo ou positivo)
+            double cp_val_lower = -1.0 * sin(x_norm * M_PI) + 0.1; // Exemplo de distribuição
+            cp_lower.push_back(cp_val_lower);
+        }
+    }
+
+    /**
+     * @brief Calcula os coeficientes aerodinâmicos C_L, C_D e C_M (Momento)
+     * * por integração da distribuição de Pressão (Cp) ao longo da corda.
+     * * @param airfoil_points Coordenadas do perfil.
+     * @param cp_upper Coeficiente de pressão na superfície superior.
+     * @param cp_lower Coeficiente de pressão na superfície inferior.
+     * @return Vetor {CL, CD, CM}
+     */
+    vector<double> calculate_coefficients(
+        const vector<pair<double, double>>& airfoil_points,
+        const vector<double>& cp_upper,
+        const vector<double>& cp_lower
+    ) {
+        double cl = 0.0; // Coeficiente de Sustentação
+        double cd = 0.0; // Coeficiente de Arrasto (de pressão)
+        double cm = 0.0; // Coeficiente de Momento (em torno do bordo de ataque)
+
+        // Nota: Para escoamento INVÍSCIDO, o arrasto é C_D = 0 (Paradoxo de D'Alembert).
+        // Apenas o arrasto de pressão é considerado aqui, que seria zero sem viscosidade.
+        // O termo de Arrasto será preenchido para fins de estrutura, mas seu valor será próximo de zero.
+        
+        int num_points = airfoil_points.size();
+        
+        // O perfil de pontos é percorrido de cima para baixo.
+        // Cerca de metade dos pontos são para a superfície superior (i=0 até num_points/2 - 1)
+        int num_upper_points = cp_upper.size();
+
+        // Loop sobre os segmentos da superfície
+        for (int i = 0; i < num_points - 1; ++i) {
+            double cp;
+            
+            // Determina qual Cp usar e as coordenadas
+            if (i < num_upper_points - 1) { // Superfície Superior (Extrados)
+                cp = (cp_upper[i] + cp_upper[i + 1]) / 2.0;
+            } else { // Superfície Inferior (Intrados)
+                // O índice i precisa ser mapeado para o vetor cp_lower
+                int lower_index = (i - (num_upper_points - 1));
+                if (lower_index >= cp_lower.size() - 1) continue; 
+                cp = (cp_lower[lower_index] + cp_lower[lower_index + 1]) / 2.0;
+            }
+
+            // Delta do segmento de superfície (vetor ds)
+            double dx = airfoil_points[i + 1].first - airfoil_points[i].first;
+            double dy = airfoil_points[i + 1].second - airfoil_points[i].second;
+            double ds = sqrt(dx * dx + dy * dy);
+            
+            // Vetor normal unitário (n_x, n_y) no centro do segmento (na verdade é o elemento da área dS)
+            // n_x = -dy / ds; n_y = dx / ds; // Aproximação da normal
+            
+            // Decomposição da Força (Pressão * Área) em Sustentação e Arrasto
+            // dL = -P * n_y * ds.
+            // dD = -P * n_x * ds.
+            // Como Cp = (P - P_inf) / q_inf, e o Lift/Drag é a integral de (P - P_inf), usamos Cp diretamente.
+            // dCL = -Cp * n_y * ds / C
+            // dCD = -Cp * n_x * ds / C
+            
+            // Na forma integral (em relação à corda, c=1), a contribuição é:
+            double dL_prime = -cp * dx; // Contribuição do Lift na direção 'normal' ao eixo X
+            double dD_prime = -cp * dy; // Contribuição do Drag na direção 'paralela' ao eixo Y
+            
+            // Lift e Drag são forças perpendiculares e paralelas à corrente livre (U_inf)
+            // L = N*cos(AoA) - A*sin(AoA) (Onde N é normal e A é axial)
+            // Para AoA=0, L=N e D=A
+            
+            // dCL/c = dL_prime / c = -Cp * (dx/c)
+            // dCD/c = dD_prime / c = -Cp * (dy/c)
+            
+            // Sustentação (CL): projeção vertical
+            cl += (-cp * dx) * cos(AOA_RAD) - (-cp * dy) * sin(AOA_RAD);
+
+            // Arrasto (CD): projeção horizontal
+            // Em escoamento invíscido (Euler), este termo é o arrasto de pressão, que idealmente é zero.
+            cd += (-cp * dx) * sin(AOA_RAD) + (-cp * dy) * cos(AOA_RAD);
+
+            // Momento (CM): Momento em torno do ponto de referência (bordo de ataque: x=0)
+            double x_avg = (airfoil_points[i].first + airfoil_points[i+1].first) / 2.0;
+            // dCM = dCL * x_avg
+            cm += cl * x_avg;
+        }
+
+        // Momento final (dividido pela corda^2 e q_inf, mas c=1 e q_inf=1)
+        cm /= CHORD; 
+
+        return {cl, cd, cm};
+    }
+};
+
+// --- Módulo Principal ---
+
+int main() {
+    // --- PARTE 1: Geração do Aerofólio ---
+    cout << "--- 1. Geracao do Aerofolio NACA 4-digitos ---" << endl;
+    
+    // Aerofólio de exemplo: NACA 2412 (Camber: 2%, Posicao: 40%, Espessura: 12%)
+    int naca_code = 2412; 
+    int num_airfoil_points = 100; // Total de pontos: 2*num_points - 1
+
+    vector<pair<double, double>> airfoil_profile = generate_naca_airfoil(naca_code, num_airfoil_points);
+    
+    cout << "Perfil NACA " << naca_code << " gerado com " << airfoil_profile.size() << " pontos." << endl;
+    
+    cout << "-----------------------------------------------" << endl;
+    
+    // --- PARTE 2: Simulação Euler (Inviscida) ---
+    cout << "--- 2. Simulacao Euler Inviscida (Foco em CL/CD) ---" << endl;
+    
+    EulerCFDSolver solver;
+    vector<double> cp_upper;
+    vector<double> cp_lower;
+
+    // 1. Executa o solver (que preenche o campo de Pressão/Cp na superfície)
+    solver.run_euler_simulation(airfoil_profile, cp_upper, cp_lower); 
+    
+    // 2. Calcula os Coeficientes Aerodinâmicos
+    vector<double> results = solver.calculate_coefficients(airfoil_profile, cp_upper, cp_lower);
+    
+    double CL = results[0]; // Coeficiente de Sustentação
+    double CD = results[1]; // Coeficiente de Arrasto
+    double CM = results[2]; // Coeficiente de Momento
+
+    cout << fixed << setprecision(4);
+    cout << "--- Resultados Aerodinamicos (Escoamento Inviscido) ---" << endl;
+    cout << "Coeficiente de Sustentacao (CL): " << CL << endl;
+    cout << "Coeficiente de Arrasto (CD): " << CD << " (CD deve ser proximo de zero em escoamento inviscido ideal)" << endl;
+    cout << "Coeficiente de Momento (CM): " << CM << endl;
+    
+    cout << "-----------------------------------------------" << endl;
+    cout << "Proxima etapa: Implementar o solver de Euler/Painel real em 'run_euler_simulation' para obter resultados fisicos mais precisos." << endl;
+
+    return 0;
+}
